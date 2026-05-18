@@ -8,17 +8,21 @@
 import SwiftUI
 import AppKit
 import Combine
+import UniformTypeIdentifiers
 
 /// The individual sticky note view - this goes in each floating window
 struct StickyNoteView: View {
     @Binding var content: String
     @Binding var color: Color
+    @Binding var audioAttachment: StickyAudioAttachment?
+    @ObservedObject var audioPlayer: AudioAttachmentPlayer
     let onClose: () -> Void
     let onNewSticky: () -> Void
     
     @StateObject private var windowShadeController = WindowShadeController()
     @State private var isHovered = false
     @State private var isEditing = false
+    @State private var isAudioDropTarget = false
     @State private var showsDeleteConfirmation = false
     @FocusState private var isFocused: Bool
     @Namespace private var morphNamespace
@@ -77,6 +81,18 @@ struct StickyNoteView: View {
         .overlay {
             keyboardShortcutCommands
         }
+        .overlay {
+            if isAudioDropTarget {
+                RoundedRectangle(cornerRadius: surfaceCornerRadius, style: .continuous)
+                    .strokeBorder(.primary.opacity(0.22), lineWidth: 1)
+                    .padding(3)
+            }
+        }
+        .onDrop(
+            of: StickyAudioAttachment.droppedContentTypes,
+            isTargeted: $isAudioDropTarget,
+            perform: handleAudioDrop
+        )
         .alert("Delete this sticky?", isPresented: $showsDeleteConfirmation) {
             Button("Delete", role: .destructive, action: onClose)
             Button("Cancel", role: .cancel) {}
@@ -172,6 +188,13 @@ struct StickyNoteView: View {
                     .foregroundStyle(.primary)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                    .frame(maxWidth: audioAttachment == nil ? .infinity : 72, alignment: .leading)
+                
+                AudioAttachmentView(
+                    attachment: $audioAttachment,
+                    player: audioPlayer,
+                    mode: .compact
+                )
                 
                 Spacer()
                 
@@ -197,26 +220,35 @@ struct StickyNoteView: View {
     
     private var noteBody: some View {
         ScrollView {
-            if isEditing {
-                TextEditor(text: $content)
-                    .font(noteFont)
-                    .scrollContentBackground(.hidden)
-                    .background(Color.clear)
-                    .focused($isFocused)
-                    .frame(maxWidth: .infinity, minHeight: 200, alignment: .leading)
-            } else if let attributedString = try? AttributedString(markdown: content) {
-                Text(attributedString)
-                    .font(noteFont)
-                    .foregroundStyle(.primary)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                Text(content)
-                    .font(noteFont)
-                    .foregroundStyle(.primary)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 10) {
+                if isEditing {
+                    TextEditor(text: $content)
+                        .font(noteFont)
+                        .scrollContentBackground(.hidden)
+                        .background(Color.clear)
+                        .focused($isFocused)
+                        .frame(maxWidth: .infinity, minHeight: 200, alignment: .leading)
+                } else if let attributedString = try? AttributedString(markdown: content) {
+                    Text(attributedString)
+                        .font(noteFont)
+                        .foregroundStyle(.primary)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    Text(content)
+                        .font(noteFont)
+                        .foregroundStyle(.primary)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                
+                AudioAttachmentView(
+                    attachment: $audioAttachment,
+                    player: audioPlayer,
+                    mode: .expanded
+                )
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxHeight: .infinity)
         .padding(.horizontal, 16)
@@ -294,6 +326,45 @@ struct StickyNoteView: View {
     
     private func expand() {
         windowShadeController.expand()
+    }
+    
+    private func handleAudioDrop(_ providers: [NSItemProvider]) -> Bool {
+        guard let provider = providers.first(where: { provider in
+            provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier)
+        }) else {
+            return false
+        }
+        
+        provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, _ in
+            guard let url = droppedFileURL(from: item), StickyAudioAttachment.isSupportedAudioURL(url) else {
+                return
+            }
+            
+            Task {
+                guard let attachment = try? await StickyAudioAttachment.make(from: url) else { return }
+                await MainActor.run {
+                    audioAttachment = attachment
+                }
+            }
+        }
+        
+        return true
+    }
+    
+    private func droppedFileURL(from item: NSSecureCoding?) -> URL? {
+        if let url = item as? URL {
+            return url
+        }
+        
+        if let data = item as? Data {
+            return URL(dataRepresentation: data, relativeTo: nil)
+        }
+        
+        if let string = item as? String {
+            return URL(string: string)
+        }
+        
+        return nil
     }
 }
 
@@ -490,6 +561,8 @@ private final class TitleBarHostView: NSView {
     StickyNoteView(
         content: .constant("# Preview Note\n\nThis is a **preview** of the sticky note.\n\n- Item 1\n- Item 2\n\n*More pro than ever!*"),
         color: .constant(.yellow),
+        audioAttachment: .constant(nil),
+        audioPlayer: AudioAttachmentPlayer(),
         onClose: {},
         onNewSticky: {}
     )

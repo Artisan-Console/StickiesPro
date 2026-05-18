@@ -16,6 +16,10 @@ final class Sticky {
     var createdAt: Date
     var modifiedAt: Date
     var catalogAddress: String?
+    var audioFilename: String?
+    var audioBookmarkData: Data?
+    var audioDuration: Double?
+    var audioTranscription: String?
     var vault: Vault?
     
     init(
@@ -27,6 +31,10 @@ final class Sticky {
         createdAt: Date = Date(),
         modifiedAt: Date = Date(),
         catalogAddress: String? = nil,
+        audioFilename: String? = nil,
+        audioBookmarkData: Data? = nil,
+        audioDuration: Double? = nil,
+        audioTranscription: String? = nil,
         vault: Vault? = nil
     ) {
         self.id = id
@@ -37,6 +45,10 @@ final class Sticky {
         self.createdAt = createdAt
         self.modifiedAt = modifiedAt
         self.catalogAddress = catalogAddress
+        self.audioFilename = audioFilename
+        self.audioBookmarkData = audioBookmarkData
+        self.audioDuration = audioDuration
+        self.audioTranscription = audioTranscription
         self.vault = vault
     }
 }

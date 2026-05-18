@@ -300,7 +300,22 @@ class StickyWindow: NSObject, ObservableObject, Identifiable, NSWindowDelegate {
         }
     }
     
+    @Published var audioAttachment: StickyAudioAttachment? {
+        didSet {
+            guard audioAttachment != oldValue else { return }
+            audioPlayer.load(audioAttachment)
+            model.audioFilename = audioAttachment?.filename
+            model.audioBookmarkData = audioAttachment?.bookmarkData
+            model.audioDuration = audioAttachment?.duration
+            model.audioTranscription = audioAttachment?.transcription
+            model.modifiedAt = Date()
+            StickyWindowManager.shared.objectWillChange.send()
+            StickyWindowManager.shared.scheduleSave()
+        }
+    }
+    
     private(set) var panel: NSPanel?
+    private let audioPlayer = AudioAttachmentPlayer()
     private var hostingView: NSHostingView<AnyView>?
     private var expandedHeight: CGFloat = 320
     private var isClosing = false
@@ -310,7 +325,18 @@ class StickyWindow: NSObject, ObservableObject, Identifiable, NSWindowDelegate {
         self.content = model.content
         self.color = StickyColorCodec.color(from: model.color)
         self.position = CGPoint(x: model.positionX, y: model.positionY)
+        if let audioFilename = model.audioFilename, let audioBookmarkData = model.audioBookmarkData {
+            self.audioAttachment = StickyAudioAttachment(
+                filename: audioFilename,
+                bookmarkData: audioBookmarkData,
+                duration: model.audioDuration,
+                transcription: model.audioTranscription
+            )
+        } else {
+            self.audioAttachment = nil
+        }
         super.init()
+        audioPlayer.load(audioAttachment)
     }
     
     var displayTitle: String {
@@ -327,6 +353,11 @@ class StickyWindow: NSObject, ObservableObject, Identifiable, NSWindowDelegate {
                 get: { [weak self] in self?.color ?? .yellow },
                 set: { [weak self] newValue in self?.setColor(newValue) }
             ),
+            audioAttachment: Binding(
+                get: { [weak self] in self?.audioAttachment },
+                set: { [weak self] newValue in self?.audioAttachment = newValue }
+            ),
+            audioPlayer: audioPlayer,
             onClose: { [weak self] in
                 guard let self = self else { return }
                 StickyWindowManager.shared.removeSticky(self)
@@ -418,6 +449,7 @@ class StickyWindow: NSObject, ObservableObject, Identifiable, NSWindowDelegate {
         guard !isClosing else { return }
         
         isClosing = true
+        audioPlayer.stop()
         panel?.close()
         panel = nil
         hostingView = nil
