@@ -300,7 +300,9 @@ struct StickyNoteView: View {
     
     private func toggleEditing() {
         isEditing.toggle()
-        isFocused = isEditing
+        DispatchQueue.main.async {
+            isFocused = isEditing
+        }
     }
     
     private func beginEditing() {
