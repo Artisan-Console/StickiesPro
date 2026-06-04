@@ -415,7 +415,7 @@ class StickyWindow: NSObject, ObservableObject, Identifiable, NSWindowDelegate {
         
         panel.contentView = contentView
         panel.title = displayTitle
-        panel.orderFront(nil)
+        panel.makeKeyAndOrderFront(nil)
         
         self.panel = panel
         updateWindowTitle()
