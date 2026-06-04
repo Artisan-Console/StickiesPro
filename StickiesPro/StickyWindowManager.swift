@@ -374,7 +374,11 @@ class StickyWindow: NSObject, ObservableObject, Identifiable, NSWindowDelegate {
             rootView = AnyView(stickyView)
         }
         
-        hostingView = NSHostingView(rootView: rootView)
+        let hostingView = NSHostingView(rootView: rootView)
+        hostingView.sizingOptions = []
+        hostingView.translatesAutoresizingMaskIntoConstraints = true
+        hostingView.autoresizingMask = [.width, .height]
+        self.hostingView = hostingView
         
         let panel = NSPanel(
             contentRect: NSRect(
@@ -382,11 +386,8 @@ class StickyWindow: NSObject, ObservableObject, Identifiable, NSWindowDelegate {
                 size: CGSize(width: 280, height: expandedHeight)
             ),
             styleMask: [
-                .titled,
-                .fullSizeContentView,
-                .closable,
-                .resizable,
-                .miniaturizable
+                .borderless,
+                .resizable
             ],
             backing: .buffered,
             defer: false
@@ -400,8 +401,6 @@ class StickyWindow: NSObject, ObservableObject, Identifiable, NSWindowDelegate {
         panel.delegate = self
         panel.minSize = NSSize(width: 220, height: 180)
         
-        panel.titlebarAppearsTransparent = true
-        panel.titleVisibility = .hidden
         panel.backgroundColor = NSColor(color.opacity(0.05))
         panel.isOpaque = false
         panel.hasShadow = true
@@ -409,7 +408,12 @@ class StickyWindow: NSObject, ObservableObject, Identifiable, NSWindowDelegate {
         panel.standardWindowButton(.miniaturizeButton)?.isHidden = true
         panel.standardWindowButton(.zoomButton)?.isHidden = true
         
-        panel.contentView = hostingView
+        let contentView = NSView(frame: NSRect(origin: .zero, size: CGSize(width: 280, height: expandedHeight)))
+        contentView.autoresizesSubviews = true
+        hostingView.frame = contentView.bounds
+        contentView.addSubview(hostingView)
+        
+        panel.contentView = contentView
         panel.title = displayTitle
         panel.orderFront(nil)
         

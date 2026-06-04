@@ -373,6 +373,7 @@ private final class WindowShadeController: ObservableObject {
     @Published private(set) var isShaded = false
     
     let titleBarHeight: CGFloat = 34
+    private let minimumExpandedHeight: CGFloat = 280
     
     weak var window: NSWindow?
     private var expandedFrame: NSRect?
@@ -386,7 +387,7 @@ private final class WindowShadeController: ObservableObject {
         self.window = window
         
         guard let window, !isShaded else { return }
-        expandedFrame = window.frame
+        recordExpandedGeometry(from: window)
     }
     
     func toggleShade() {
@@ -419,10 +420,7 @@ private final class WindowShadeController: ObservableObject {
     
     private func shade(window: NSWindow) {
         let currentFrame = window.frame
-        expandedFrame = currentFrame
-        expandedMinSize = window.minSize
-        expandedMaxSize = window.maxSize
-        expandedStyleMask = window.styleMask
+        recordExpandedGeometry(from: window)
         
         let targetHeight = titleBarHeight
         let deltaHeight = currentFrame.height - targetHeight
@@ -442,38 +440,75 @@ private final class WindowShadeController: ObservableObject {
             window.minSize = NSSize(width: 180, height: targetHeight)
             window.maxSize = NSSize(width: .greatestFiniteMagnitude, height: targetHeight)
             window.styleMask.remove(.resizable)
-            window.animator().setFrame(shadedFrame, display: true)
+            window.setFrame(shadedFrame, display: true)
         }
     }
     
     private func restore(window: NSWindow) {
-        guard let expandedFrame else { return }
-        
-        withAnimation(shadeAnimation) {
-            isShaded = false
-        }
-        
+        let expandedFrame = normalizedExpandedFrame(expandedFrame ?? window.frame)
+
         let expandedMinSize = expandedMinSize
         let expandedMaxSize = expandedMaxSize
         let expandedStyleMask = expandedStyleMask
         
-        scheduleWindowMutation { [weak window] in
-            guard let window else { return }
-            
-            if let expandedMinSize {
-                window.minSize = expandedMinSize
-            }
-            
-            if let expandedMaxSize {
-                window.maxSize = expandedMaxSize
-            }
+        scheduleWindowMutation { [weak self, weak window] in
+            guard let self, let window else { return }
             
             if let expandedStyleMask {
                 window.styleMask = expandedStyleMask
             }
             
-            window.animator().setFrame(expandedFrame, display: true)
+            window.maxSize = NSSize(
+                width: CGFloat.greatestFiniteMagnitude,
+                height: CGFloat.greatestFiniteMagnitude
+            )
+            
+            if let expandedMinSize {
+                window.minSize = NSSize(
+                    width: expandedMinSize.width,
+                    height: max(expandedMinSize.height, self.minimumExpandedHeight)
+                )
+            }
+            
+            if let expandedMaxSize {
+                if expandedMaxSize.height >= self.minimumExpandedHeight {
+                    window.maxSize = expandedMaxSize
+                } else {
+                    window.maxSize = NSSize(width: expandedMaxSize.width, height: .greatestFiniteMagnitude)
+                }
+            }
+
+            window.setFrame(expandedFrame, display: true)
+            
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                
+                withAnimation(shadeAnimation) {
+                    self.isShaded = false
+                }
+            }
         }
+    }
+    
+    private func recordExpandedGeometry(from window: NSWindow) {
+        let currentFrame = window.frame
+        
+        guard currentFrame.height >= minimumExpandedHeight else { return }
+        
+        expandedFrame = currentFrame
+        expandedMinSize = window.minSize
+        expandedMaxSize = window.maxSize
+        expandedStyleMask = window.styleMask
+    }
+    
+    private func normalizedExpandedFrame(_ frame: NSRect) -> NSRect {
+        guard frame.height < minimumExpandedHeight else { return frame }
+        
+        var normalizedFrame = frame
+        let heightDelta = minimumExpandedHeight - frame.height
+        normalizedFrame.origin.y -= heightDelta
+        normalizedFrame.size.height = minimumExpandedHeight
+        return normalizedFrame
     }
     
     private func scheduleWindowMutation(_ mutation: @escaping @MainActor () -> Void) {
