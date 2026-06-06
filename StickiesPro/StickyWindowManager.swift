@@ -23,7 +23,7 @@ class StickyWindowManager: ObservableObject {
     private var saveTask: Task<Void, Never>?
     private var pendingAnalyticsNoteIDs = Set<UUID>()
     private let activeNotespaceDefaultsKey = "activeNotespaceID"
-    
+    weak var lastActivatedSticky: StickyWindow?
     private init() {}
     
     var activeNotespace: Vault? {
@@ -67,9 +67,9 @@ class StickyWindowManager: ObservableObject {
     }
     
     var keySticky: StickyWindow? {
-        // With nonactivatingPanel, panels don't become keyWindow.
-        // Use the frontmost panel (highest orderedIndex) as the active sticky.
-        return stickies.max(by: { $0.panel?.orderedIndex ?? 0 < $1.panel?.orderedIndex ?? 0 })
+        // Prefer the last sticky the user interacted with.
+        // Falls back to the frontmost panel by orderedIndex.
+        return lastActivatedSticky ?? stickies.max(by: { $0.panel?.orderedIndex ?? 0 < $1.panel?.orderedIndex ?? 0 })
     }
     
     func setColor(_ color: Color) {
@@ -381,7 +381,7 @@ class StickyWindow: NSObject, ObservableObject, Identifiable, NSWindowDelegate {
         hostingView.autoresizingMask = [.width, .height]
         self.hostingView = hostingView
         
-        let panel = NSPanel(
+        let panel = StickyPanel(
             contentRect: NSRect(
                 origin: position,
                 size: CGSize(width: 280, height: expandedHeight)
@@ -394,33 +394,26 @@ class StickyWindow: NSObject, ObservableObject, Identifiable, NSWindowDelegate {
             backing: .buffered,
             defer: false
         )
-        
-        panel.level = .floating
+        panel.level = .normal
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isFloatingPanel = true
         panel.hidesOnDeactivate = false
-        panel.isMovableByWindowBackground = false
+        panel.isMovableByWindowBackground = true
         panel.delegate = self
         panel.minSize = NSSize(width: 220, height: 180)
-        
-        panel.backgroundColor = NSColor(color.opacity(0.05))
+        panel.backgroundColor = .clear
         panel.isOpaque = false
         panel.hasShadow = true
-        panel.standardWindowButton(.closeButton)?.isHidden = true
-        panel.standardWindowButton(.miniaturizeButton)?.isHidden = true
-        panel.standardWindowButton(.zoomButton)?.isHidden = true
-        
         let contentView = NSView(frame: NSRect(origin: .zero, size: CGSize(width: 280, height: expandedHeight)))
         contentView.autoresizesSubviews = true
         hostingView.frame = contentView.bounds
         contentView.addSubview(hostingView)
-        
         panel.contentView = contentView
-        panel.title = displayTitle
         panel.makeKeyAndOrderFront(nil)
-        
+        shadeController.window = panel
         self.panel = panel
-        updateWindowTitle()
+        // Track this sticky as the last activated one
+        StickyWindowManager.shared.lastActivatedSticky = self
     }
     
     // MARK: - NSWindowDelegate
@@ -440,6 +433,11 @@ class StickyWindow: NSObject, ObservableObject, Identifiable, NSWindowDelegate {
         Task { @MainActor in
             guard let panel = self.panel else { return }
             self.position = panel.frame.origin
+        }
+    }
+    nonisolated func windowDidBecomeMain(_ notification: Notification) {
+        Task { @MainActor in
+            StickyWindowManager.shared.lastActivatedSticky = self
         }
     }
     nonisolated func windowDidMiniaturize(_ notification: Notification) {
@@ -463,6 +461,13 @@ class StickyWindow: NSObject, ObservableObject, Identifiable, NSWindowDelegate {
     }
     func setColor(_ color: Color) {
         self.color = color
+    }
+}
+/// NSPanel subclass that becomes key on mouse down so TextEditor works
+final class StickyPanel: NSPanel {
+    override func mouseDown(with event: NSEvent) {
+        makeKeyAndOrderFront(nil)
+        super.mouseDown(with: event)
     }
 }
 

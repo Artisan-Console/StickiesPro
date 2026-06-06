@@ -382,7 +382,8 @@ final class WindowShadeController: ObservableObject {
         let deltaHeight = currentFrame.height - targetHeight
         guard deltaHeight > 0 else { return }
         var shadedFrame = currentFrame
-        shadedFrame.origin.y += deltaHeight
+        // Shrink from the bottom: keep the top-left origin fixed, reduce height.
+        // This way the title bar stays in place and the bottom edge comes up.
         shadedFrame.size.height = targetHeight
         withAnimation(shadeAnimation) {
             isShaded = true
@@ -397,10 +398,8 @@ final class WindowShadeController: ObservableObject {
         }
     }
     private func restore(window: NSWindow) {
-        // Expand in-place: use the current shaded position as the anchor.
-        // expandedFrame is the size we recorded at collapse time, but we
-        // position it at the current location so moving the pill doesn't
-        // cause a jump.
+        // Expand downward from the pill's current position.
+        // The top-left origin stays fixed; only the height grows.
         let savedSize = expandedFrame?.size ?? NSSize(width: 280, height: minimumExpandedHeight)
         let currentFrame = window.frame
         var targetFrame = NSRect(
@@ -410,7 +409,7 @@ final class WindowShadeController: ObservableObject {
                 height: max(savedSize.height, minimumExpandedHeight)
             )
         )
-        // If the saved frame was recorded, prefer its width
+        // If the saved frame was recorded, prefer its dimensions
         if let expandedFrame {
             targetFrame.size.width = max(expandedFrame.width, currentFrame.width)
             targetFrame.size.height = max(expandedFrame.height, minimumExpandedHeight)
