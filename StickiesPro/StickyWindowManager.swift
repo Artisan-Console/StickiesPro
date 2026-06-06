@@ -394,25 +394,34 @@ class StickyWindow: NSObject, ObservableObject, Identifiable, NSWindowDelegate {
             backing: .buffered,
             defer: false
         )
-    panel.level = .normal
-    panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-    panel.isFloatingPanel = true
-    panel.hidesOnDeactivate = false
-    panel.isMovableByWindowBackground = true
-    panel.delegate = self
-    panel.minSize = NSSize(width: 220, height: 180)
-    panel.backgroundColor = .clear
-    panel.isOpaque = false
-    panel.hasShadow = true
-    let contentView = NSView(frame: NSRect(origin: .zero, size: CGSize(width: 280, height: expandedHeight)))
-    contentView.autoresizesSubviews = true
-    hostingView.frame = contentView.bounds
-    contentView.addSubview(hostingView)
-    panel.contentView = contentView
-    panel.makeKeyAndOrderFront(nil)
-    shadeController.window = panel
-    self.panel = panel
-}
+        
+        panel.level = .floating
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        panel.isFloatingPanel = true
+        panel.hidesOnDeactivate = false
+        panel.isMovableByWindowBackground = false
+        panel.delegate = self
+        panel.minSize = NSSize(width: 220, height: 180)
+        
+        panel.backgroundColor = NSColor(color.opacity(0.05))
+        panel.isOpaque = false
+        panel.hasShadow = true
+        panel.standardWindowButton(.closeButton)?.isHidden = true
+        panel.standardWindowButton(.miniaturizeButton)?.isHidden = true
+        panel.standardWindowButton(.zoomButton)?.isHidden = true
+        
+        let contentView = NSView(frame: NSRect(origin: .zero, size: CGSize(width: 280, height: expandedHeight)))
+        contentView.autoresizesSubviews = true
+        hostingView.frame = contentView.bounds
+        contentView.addSubview(hostingView)
+        
+        panel.contentView = contentView
+        panel.title = displayTitle
+        panel.makeKeyAndOrderFront(nil)
+        
+        self.panel = panel
+        updateWindowTitle()
+    }
     
     // MARK: - NSWindowDelegate
     
