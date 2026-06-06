@@ -67,8 +67,9 @@ class StickyWindowManager: ObservableObject {
     }
     
     var keySticky: StickyWindow? {
-        let keyWindow = NSApp.keyWindow ?? NSApp.mainWindow
-        return stickies.first { $0.panel === keyWindow }
+        // With nonactivatingPanel, panels don't become keyWindow.
+        // Use the frontmost panel (highest orderedIndex) as the active sticky.
+        return stickies.max(by: { $0.panel?.orderedIndex ?? 0 < $1.panel?.orderedIndex ?? 0 })
     }
     
     func setColor(_ color: Color) {
@@ -274,7 +275,6 @@ class StickyWindow: NSObject, ObservableObject, Identifiable, NSWindowDelegate {
             guard content != oldValue else { return }
             model.content = content
             model.modifiedAt = Date()
-            updateWindowTitle()
             StickyWindowManager.shared.objectWillChange.send()
             StickyWindowManager.shared.scheduleSave(contentChangedNoteID: id)
         }
@@ -344,6 +344,7 @@ class StickyWindow: NSObject, ObservableObject, Identifiable, NSWindowDelegate {
     }
     
     func show() {
+        let shadeController = WindowShadeController()
         let stickyView = StickyNoteView(
             content: Binding(
                 get: { [weak self] in self?.content ?? "" },
@@ -364,9 +365,9 @@ class StickyWindow: NSObject, ObservableObject, Identifiable, NSWindowDelegate {
             },
             onNewSticky: {
                 StickyWindowManager.shared.createSticky()
-            }
+            },
+            windowShadeController: shadeController
         )
-        
         let rootView: AnyView
         if let modelContext = StickyWindowManager.shared.modelContext {
             rootView = AnyView(stickyView.modelContext(modelContext))
@@ -387,7 +388,8 @@ class StickyWindow: NSObject, ObservableObject, Identifiable, NSWindowDelegate {
             ),
             styleMask: [
                 .borderless,
-                .resizable
+                .resizable,
+                .miniaturizable
             ],
             backing: .buffered,
             defer: false
@@ -440,18 +442,14 @@ class StickyWindow: NSObject, ObservableObject, Identifiable, NSWindowDelegate {
             self.position = panel.frame.origin
         }
     }
-    
     nonisolated func windowDidMiniaturize(_ notification: Notification) {
-        // Window was shaded (minimized to titlebar)
+        // Window was miniaturized (minimized to Dock)
     }
-    
     nonisolated func windowDidDeminiaturize(_ notification: Notification) {
-        // Window was unshaded (restored from titlebar)
+        // Window was deminiaturized (restored from Dock)
     }
-    
     func close() {
         guard !isClosing else { return }
-        
         isClosing = true
         audioPlayer.stop()
         panel?.close()
@@ -459,18 +457,12 @@ class StickyWindow: NSObject, ObservableObject, Identifiable, NSWindowDelegate {
         hostingView = nil
         isClosing = false
     }
-    
     func focus() {
         panel?.makeKeyAndOrderFront(nil)
         NSApp.activate()
     }
-    
     func setColor(_ color: Color) {
         self.color = color
-    }
-    
-    private func updateWindowTitle() {
-        panel?.title = displayTitle
     }
 }
 

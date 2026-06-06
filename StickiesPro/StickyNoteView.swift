@@ -18,8 +18,7 @@ struct StickyNoteView: View {
     @ObservedObject var audioPlayer: AudioAttachmentPlayer
     let onClose: () -> Void
     let onNewSticky: () -> Void
-    
-    @StateObject private var windowShadeController = WindowShadeController()
+    @ObservedObject var windowShadeController: WindowShadeController
     @State private var isHovered = false
     @State private var isEditing = false
     @State private var isAudioDropTarget = false
@@ -50,12 +49,9 @@ struct StickyNoteView: View {
             if isExpanded {
                 VStack(alignment: .leading, spacing: 0) {
                     expandedToolbar
-                    
                     Divider()
                         .opacity(0.3)
-                    
                     noteBody
-                    
                     statusBar
                 }
             } else {
@@ -63,13 +59,11 @@ struct StickyNoteView: View {
             }
         }
         .matchedGeometryEffect(id: "stickySurface", in: morphNamespace)
-        .background {
-            surfaceBackground
-        }
+        .glassEffect(.regular.tint(color.opacity(0.12)), in: .rect(cornerRadius: surfaceCornerRadius))
         .clipShape(RoundedRectangle(cornerRadius: surfaceCornerRadius, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: surfaceCornerRadius, style: .continuous)
-                .strokeBorder(.white.opacity(isHovered ? 0.42 : 0.25), lineWidth: 1)
+                .strokeBorder(.white.opacity(isHovered ? 0.35 : 0.18), lineWidth: 1)
         }
         .animation(.spring(response: 0.38, dampingFraction: 0.72), value: isExpanded)
         .onHover { hovering in
@@ -101,27 +95,8 @@ struct StickyNoteView: View {
         }
     }
     
-    private var surfaceBackground: some View {
-        ZStack {
-            LinearGradient(
-                colors: [
-                    color.opacity(0.34),
-                    .white.opacity(0.12),
-                    color.opacity(0.12)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            
-            Rectangle()
-                .fill(.ultraThinMaterial.opacity(0.72))
-        }
-    }
-    
     private var expandedToolbar: some View {
-        ZStack {
-            WindowTitleBarBridge(windowShadeController: windowShadeController)
-            
+        GlassEffectContainer {
             HStack(spacing: 8) {
                 Button {
                     collapse()
@@ -131,7 +106,6 @@ struct StickyNoteView: View {
                 .buttonStyle(.plain)
                 .keyboardShortcut("m", modifiers: .command)
                 .help("Collapse")
-                
                 Button {
                     windowShadeController.zoom()
                 } label: {
@@ -139,22 +113,18 @@ struct StickyNoteView: View {
                 }
                 .buttonStyle(.plain)
                 .help("Zoom")
-                
                 Spacer()
-                
                 Button(action: onNewSticky) {
                     toolbarIcon("plus", size: 9)
                 }
                 .buttonStyle(.plain)
                 .help("New Sticky")
-                
                 Button(action: toggleEditing) {
                     toolbarIcon(isEditing ? "eye" : "info.circle", size: 11)
                 }
                 .buttonStyle(.plain)
                 .opacity(isHovered ? 1 : 0.65)
                 .help(isEditing ? "Preview" : "Edit")
-                
                 Button {
                     showsDeleteConfirmation = true
                 } label: {
@@ -167,12 +137,12 @@ struct StickyNoteView: View {
             .padding(.horizontal, 12)
         }
         .frame(height: windowShadeController.titleBarHeight)
+        .onTapGesture(count: 2) {
+            collapse()
+        }
     }
-    
     private var collapsedPill: some View {
-        ZStack {
-            WindowTitleBarBridge(windowShadeController: windowShadeController)
-            
+        GlassEffectContainer {
             HStack(spacing: 8) {
                 Button {
                     expand()
@@ -182,28 +152,23 @@ struct StickyNoteView: View {
                 .buttonStyle(.plain)
                 .keyboardShortcut("m", modifiers: [.command, .shift])
                 .help("Expand")
-                
                 Text(title)
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .frame(maxWidth: audioAttachment == nil ? .infinity : 72, alignment: .leading)
-                
                 AudioAttachmentView(
                     attachment: $audioAttachment,
                     player: audioPlayer,
                     mode: .compact
                 )
-                
                 Spacer()
-                
                 Button(action: onNewSticky) {
                     toolbarIcon("plus", size: 9)
                 }
                 .buttonStyle(.plain)
                 .help("New Sticky")
-                
                 Button {
                     showsDeleteConfirmation = true
                 } label: {
@@ -216,6 +181,9 @@ struct StickyNoteView: View {
             .padding(.horizontal, 12)
         }
         .frame(height: windowShadeController.titleBarHeight)
+        .onTapGesture(count: 2) {
+            expand()
+        }
     }
     
     private var noteBody: some View {
@@ -371,27 +339,21 @@ struct StickyNoteView: View {
 }
 
 @MainActor
-private final class WindowShadeController: ObservableObject {
+final class WindowShadeController: ObservableObject {
     @Published private(set) var isShaded = false
-    
     let titleBarHeight: CGFloat = 34
     private let minimumExpandedHeight: CGFloat = 280
-    
-    weak var window: NSWindow?
+    weak var window: NSWindow? {
+        didSet {
+            guard let window, !isShaded else { return }
+            recordExpandedGeometry(from: window)
+        }
+    }
     private var expandedFrame: NSRect?
     private var expandedMinSize: NSSize?
     private var expandedMaxSize: NSSize?
-    private var expandedStyleMask: NSWindow.StyleMask?
     private let shadeAnimation = Animation.spring(response: 0.38, dampingFraction: 0.72)
     private var windowMutationGeneration = 0
-    
-    func attach(to window: NSWindow?) {
-        self.window = window
-        
-        guard let window, !isShaded else { return }
-        recordExpandedGeometry(from: window)
-    }
-    
     func toggleShade() {
         if isShaded {
             expand()
@@ -399,79 +361,76 @@ private final class WindowShadeController: ObservableObject {
             collapse()
         }
     }
-    
     func collapse() {
         guard let window, !isShaded else { return }
-        
         shade(window: window)
     }
-    
     func expand() {
         guard let window, isShaded else { return }
-        
         restore(window: window)
     }
-    
     func zoom() {
         guard let window, !isShaded else { return }
-        
         scheduleWindowMutation { [weak window] in
             window?.performZoom(nil)
         }
     }
-    
     private func shade(window: NSWindow) {
         let currentFrame = window.frame
         recordExpandedGeometry(from: window)
-        
         let targetHeight = titleBarHeight
         let deltaHeight = currentFrame.height - targetHeight
-        
         guard deltaHeight > 0 else { return }
-        
         var shadedFrame = currentFrame
         shadedFrame.origin.y += deltaHeight
         shadedFrame.size.height = targetHeight
-        
         withAnimation(shadeAnimation) {
             isShaded = true
         }
-        
         scheduleWindowMutation { [weak window] in
             guard let window else { return }
             window.minSize = NSSize(width: 180, height: targetHeight)
             window.maxSize = NSSize(width: .greatestFiniteMagnitude, height: targetHeight)
-            window.styleMask.remove(.resizable)
+            // Lock to borderless (no resizable) while shaded
+            window.styleMask = .borderless
             window.setFrame(shadedFrame, display: true)
         }
     }
-    
     private func restore(window: NSWindow) {
-        let expandedFrame = normalizedExpandedFrame(expandedFrame ?? window.frame)
-
+        // Expand in-place: use the current shaded position as the anchor.
+        // expandedFrame is the size we recorded at collapse time, but we
+        // position it at the current location so moving the pill doesn't
+        // cause a jump.
+        let savedSize = expandedFrame?.size ?? NSSize(width: 280, height: minimumExpandedHeight)
+        let currentFrame = window.frame
+        var targetFrame = NSRect(
+            origin: currentFrame.origin,
+            size: NSSize(
+                width: max(savedSize.width, currentFrame.width),
+                height: max(savedSize.height, minimumExpandedHeight)
+            )
+        )
+        // If the saved frame was recorded, prefer its width
+        if let expandedFrame {
+            targetFrame.size.width = max(expandedFrame.width, currentFrame.width)
+            targetFrame.size.height = max(expandedFrame.height, minimumExpandedHeight)
+        }
         let expandedMinSize = expandedMinSize
         let expandedMaxSize = expandedMaxSize
-        let expandedStyleMask = expandedStyleMask
-        
         scheduleWindowMutation { [weak self, weak window] in
             guard let self, let window else { return }
-            
-            if let expandedStyleMask {
-                window.styleMask = expandedStyleMask
-            }
-            
+            // Restore resizable borderless style
+            window.styleMask = [.borderless, .resizable]
             window.maxSize = NSSize(
                 width: CGFloat.greatestFiniteMagnitude,
                 height: CGFloat.greatestFiniteMagnitude
             )
-            
             if let expandedMinSize {
                 window.minSize = NSSize(
                     width: expandedMinSize.width,
                     height: max(expandedMinSize.height, self.minimumExpandedHeight)
                 )
             }
-            
             if let expandedMaxSize {
                 if expandedMaxSize.height >= self.minimumExpandedHeight {
                     window.maxSize = expandedMaxSize
@@ -479,69 +438,53 @@ private final class WindowShadeController: ObservableObject {
                     window.maxSize = NSSize(width: expandedMaxSize.width, height: .greatestFiniteMagnitude)
                 }
             }
-
-            window.setFrame(expandedFrame, display: true)
-            
+            window.setFrame(targetFrame, display: true)
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
-                
                 withAnimation(shadeAnimation) {
                     self.isShaded = false
                 }
             }
         }
     }
-    
     private func recordExpandedGeometry(from window: NSWindow) {
         let currentFrame = window.frame
-        
         guard currentFrame.height >= minimumExpandedHeight else { return }
-        
         expandedFrame = currentFrame
         expandedMinSize = window.minSize
         expandedMaxSize = window.maxSize
-        expandedStyleMask = window.styleMask
     }
-    
     private func normalizedExpandedFrame(_ frame: NSRect) -> NSRect {
         guard frame.height < minimumExpandedHeight else { return frame }
-        
         var normalizedFrame = frame
         let heightDelta = minimumExpandedHeight - frame.height
         normalizedFrame.origin.y -= heightDelta
         normalizedFrame.size.height = minimumExpandedHeight
         return normalizedFrame
     }
-    
     private func scheduleWindowMutation(_ mutation: @escaping @MainActor () -> Void) {
         windowMutationGeneration += 1
         let generation = windowMutationGeneration
-        
         DispatchQueue.main.async { [weak self] in
             guard let self, self.windowMutationGeneration == generation else { return }
             mutation()
         }
     }
 }
-
 enum StickyNoteTitle {
     static func make(from content: String) -> String {
         let title = content
             .split(whereSeparator: \.isNewline)
             .map { cleanup(String($0)) }
             .first { !$0.isEmpty }
-        
         return title ?? "New Sticky"
     }
-    
     private static func cleanup(_ line: String) -> String {
         var cleaned = line.trimmingCharacters(in: .whitespacesAndNewlines)
-        
         while cleaned.first == "#" || cleaned.first == "-" || cleaned.first == "*" || cleaned.first == ">" {
             cleaned.removeFirst()
             cleaned = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
         }
-        
         return cleaned
             .replacingOccurrences(of: "`", with: "")
             .replacingOccurrences(of: "**", with: "")
@@ -549,50 +492,6 @@ enum StickyNoteTitle {
     }
 }
 
-private struct WindowTitleBarBridge: NSViewRepresentable {
-    @ObservedObject var windowShadeController: WindowShadeController
-    
-    func makeNSView(context: Context) -> TitleBarHostView {
-        let view = TitleBarHostView()
-        view.windowShadeController = windowShadeController
-        return view
-    }
-    
-    func updateNSView(_ nsView: TitleBarHostView, context: Context) {
-        nsView.windowShadeController = windowShadeController
-        
-        DispatchQueue.main.async {
-            windowShadeController.attach(to: nsView.window)
-        }
-    }
-}
-
-private final class TitleBarHostView: NSView {
-    weak var windowShadeController: WindowShadeController?
-    
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        wantsLayer = true
-        layer?.backgroundColor = .clear
-    }
-    
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-    
-    override func mouseDown(with event: NSEvent) {
-        if event.clickCount == 2 {
-            windowShadeController?.toggleShade()
-            return
-        }
-        
-        window?.performDrag(with: event)
-    }
-    
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        self
-    }
-}
 
 #Preview {
     StickyNoteView(
@@ -601,7 +500,8 @@ private final class TitleBarHostView: NSView {
         audioAttachment: .constant(nil),
         audioPlayer: AudioAttachmentPlayer(),
         onClose: {},
-        onNewSticky: {}
+        onNewSticky: {},
+        windowShadeController: WindowShadeController()
     )
     .frame(width: 280, height: 320)
 }
